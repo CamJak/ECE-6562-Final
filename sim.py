@@ -4,24 +4,55 @@ import matplotlib.pyplot as plt
 
 # Target class to represent a moving object
 class Target:
-    def __init__(self, position, velocity):
-        self.position = position
-        self.velocity = velocity
+    def __init__(self, state_vector, id):
+        self.state_vector = state_vector
+        self.id = id
 
     def update(self, dt):
-        self.position += self.velocity * dt
+        sigma = 0.5
+        x_old = self.state_vector
+        F = np.array([[1, dt, 0, 0],
+                      [0, 1, 0, 0],
+                      [0, 0, 1, dt],
+                      [0, 0, 0, 1]])
+        dt2 = dt**2
+        dt3 = dt**3
+        dt4 = dt**4
+        Q = np.array([
+            [0.25*dt4, 0.33*dt3,        0,        0],
+            [0.33*dt3,      dt2,        0,        0],
+            [       0,        0, 0.25*dt4, 0.33*dt3],
+            [       0,        0, 0.33*dt3,      dt2]
+        ]) * (sigma**2)
+        mean = np.zeros(4)
+        w = np.random.multivariate_normal(mean, Q)
+        x_new = F @ x_old + w
+        self.state_vector = x_new
+
+    def re_init(self, boundary_width, boundary_height, id):
+        rand_x_pos = np.random.uniform(-(boundary_width/2), (boundary_width/2))
+        rand_y_pos = np.random.uniform(-(boundary_height/2), (boundary_height/2))
+
+        rand_x_vel = np.random.uniform(-3, 3)
+        rand_y_vel = np.random.uniform(-3, 3)
+
+        self.state_vector = np.array([rand_x_pos, rand_x_vel, rand_y_pos, rand_y_vel]).T
+        self.id = id
 
     def get_position(self):
-        return self.position
+        return (self.state_vector[0], self.state_vector[2])
     
     def get_velocity(self):
-        return self.velocity
+        return (self.state_vector[1], self.state_vector[3])
     
     def get_speed(self):
-        return np.linalg.norm(self.velocity)
+        return np.linalg.norm(self.get_velocity())
     
     def get_direction(self):
-        return self.velocity / self.get_speed()
+        return self.get_velocity() / self.get_speed()
+    
+    def get_ID(self):
+        return self.id
 
 # Radar class to represent a radar system
 class Radar:
@@ -71,18 +102,21 @@ def plot_sim(target_arr, radar):
     plt.show()
 
 # Generate a specified number of targets with random position and velocity
-def gen_targets(num_targets, boundary_width, boundary_height):
+def gen_targets(num_targets, boundary_width, boundary_height, id_counter):
     target_arr = []
     for i in range(num_targets):
         rand_x_pos = np.random.uniform(-(boundary_width/2), (boundary_width/2))
         rand_y_pos = np.random.uniform(-(boundary_height/2), (boundary_height/2))
-        rand_pos = np.array([rand_x_pos, rand_y_pos])
 
-        rand_x_vel = np.random.uniform()
+        rand_x_vel = np.random.uniform(-3, 3)
+        rand_y_vel = np.random.uniform(-3, 3)
 
-        new_target = Target(rand_pos, np.array([0, 0]))
+        new_state_vector = np.array([rand_x_pos, rand_x_vel, rand_y_pos, rand_y_vel]).T
+
+        new_target = Target(new_state_vector, id_counter)
+        id_counter += 1
         target_arr.append(new_target)
-    return target_arr
+    return target_arr, id_counter
 
 
 ## Sim loop
@@ -93,10 +127,25 @@ if __name__ == "__main__":
     BOUNDARY_HEIGHT = 200
 
     # Create set of random targets
-    target_arr = gen_targets(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT)
+    ID_COUNTER = 0
+    target_arr, ID_COUNTER = gen_targets(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER)
 
     # Create radar at origin
     radar = Radar(np.array([0, 0]))
 
     # Plot targets for testing
-    plot_sim(target_arr, radar)
+    #plot_sim(target_arr, radar)
+
+    # Test loop
+    dt = 0.1
+    sim_steps = 1000
+    for step in range(sim_steps):
+        # Update all targets
+        for i in range(NUM_TARGETS):
+            target_arr[i].update(dt)
+            curr_target_pos = target_arr[i].get_position()
+            if (abs(curr_target_pos[0]) > BOUNDARY_WIDTH / 2) or (abs(curr_target_pos[1]) > BOUNDARY_HEIGHT / 2):
+                target_arr[i].re_init(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER)
+                ID_COUNTER += 1
+
+    print(f"Number of targets created in sim: {ID_COUNTER}")
