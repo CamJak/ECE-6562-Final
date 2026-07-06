@@ -79,7 +79,7 @@ class Radar:
     
 # Plot function to display area with targets and radar
 def plot_sim(target_arr, radar):
-    plt.figure(figsize=(8, 8))
+    plt.clf()
 
     radar_pos = radar.get_position()
     plt.scatter(radar_pos[0], radar_pos[1], color='blue', marker='^', s=150, label='Radar')
@@ -125,6 +125,7 @@ if __name__ == "__main__":
     NUM_TARGETS = 5
     BOUNDARY_WIDTH = 200
     BOUNDARY_HEIGHT = 200
+    GUI_ON = False
 
     # Create set of random targets
     ID_COUNTER = 0
@@ -133,13 +134,17 @@ if __name__ == "__main__":
     # Create radar at origin
     radar = Radar(np.array([0, 0]))
 
-    # Plot targets for testing
-    #plot_sim(target_arr, radar)
+    if GUI_ON:
+        # Init plot
+        plt.ion()
+        plt.figure(figsize=(8, 8))
+        plot_sim(target_arr, radar)
 
     # Test loop
     dt = 0.1
     sim_steps = 1000
     for step in range(sim_steps):
+        
         # Update all targets
         for i in range(NUM_TARGETS):
             target_arr[i].update(dt)
@@ -147,5 +152,10 @@ if __name__ == "__main__":
             if (abs(curr_target_pos[0]) > BOUNDARY_WIDTH / 2) or (abs(curr_target_pos[1]) > BOUNDARY_HEIGHT / 2):
                 target_arr[i].re_init(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER)
                 ID_COUNTER += 1
+
+        if GUI_ON:
+            # Update plot
+            plot_sim(target_arr, radar)
+            plt.pause(0.01)
 
     print(f"Number of targets created in sim: {ID_COUNTER}")
