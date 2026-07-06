@@ -9,7 +9,7 @@ class Target:
         self.id = id
 
     def update(self, dt):
-        sigma = 0.5
+        sigma_q = 0.5
         x_old = self.state_vector
         F = np.array([[1, dt, 0, 0],
                       [0, 1, 0, 0],
@@ -17,13 +17,12 @@ class Target:
                       [0, 0, 0, 1]])
         dt2 = dt**2
         dt3 = dt**3
-        dt4 = dt**4
         Q = np.array([
-            [0.25*dt4, 0.33*dt3,        0,        0],
-            [0.33*dt3,      dt2,        0,        0],
-            [       0,        0, 0.25*dt4, 0.33*dt3],
-            [       0,        0, 0.33*dt3,      dt2]
-        ]) * (sigma**2)
+            [dt3/3,   dt2/2,    0,           0],
+            [dt2/2,   dt,       0,           0],
+            [0,       0,        dt3/3,   dt2/2],
+            [0,       0,        dt2/2,      dt]
+        ]) * (sigma_q**2)
         mean = np.zeros(4)
         w = np.random.multivariate_normal(mean, Q)
         x_new = F @ x_old + w
@@ -77,8 +76,98 @@ class Radar:
         noisy_azimuth = true_azimuth + np.random.normal(0, self.sigma_azimuth)
         return (noisy_range, noisy_azimuth)
     
+# Tracker class to handle Kalman math for radar
+class RadarTracker:
+    def __init__(self, radar_position, sigma_range, sigma_azimuth_rad, q_bar=0.5):
+        self.sensor_pos = radar_position
+        self.sigma_r = sigma_range
+        self.sigma_theta = sigma_azimuth_rad
+        self.q_bar = q_bar
+
+        # Init estimate
+        self.x = np.array([0.0, 0.0, 0.0, 0.0])
+        self.P = np.eye(4) * 100
+
+        self.H = np.array([
+            [1, 0, 0, 0],
+            [0, 0, 1, 0]
+        ])
+
+        self.is_initialized = False
+
+    def init_track(self, raw_measurement):
+        r, theta = raw_measurement
+
+        b1 = np.exp(-(self.sigma_theta**2)/2)
+
+        x_pos = (r * np.cos(theta) / b1 + self.sensor_pos[0])
+        y_pos = (r * np.sin(theta) / b1 + self.sensor_pos[1])
+
+        self.x = np.array([x_pos, 0.0, y_pos, 0.0])
+        self.P = np.diag([self.sigma_r**2, 10.0, self.sigma_r**2, 10.0])
+        self.is_initialized = True
+
+    def predict(self, dt):
+        F = np.array([[1, dt, 0, 0],
+                      [0, 1, 0, 0],
+                      [0, 0, 1, dt],
+                      [0, 0, 0, 1]])
+        
+        dt2 = dt**2
+        dt3 = dt**3
+
+        Q = np.array([
+            [dt3/3,   dt2/2,    0,           0],
+            [dt2/2,   dt,       0,           0],
+            [0,       0,        dt3/3,   dt2/2],
+            [0,       0,        dt2/2,      dt]
+        ]) * (self.q_bar**2)
+
+        self.x = F @ self.x
+        self.P = F @ self.P @ F.T + Q
+
+    def update(self, raw_measurement):
+        if not self.is_initialized:
+            self.init_track(raw_measurement)
+            return
+        
+        r, theta = raw_measurement
+
+        b1 = np.exp(-(self.sigma_theta**2)/2)
+        b2 = np.exp(-2 * (self.sigma_theta**2))
+
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        sin_2t = np.sin(2 * theta)
+        r2_sigma = r**2 + self.sigma_r**2
+        b1_inv2 = b1**(-2)
+
+        Zc = np.array([
+            r * cos_t / b1 + self.sensor_pos[0],
+            r * sin_t / b1 + self.sensor_pos[1]
+        ])
+
+        # TODO: Test these as there are conflicting sources on equations here
+        R11 = b1_inv2 * (r**2) * (cos_t**2) + 0.5 * r2_sigma * (1 + (b1**4) * cos_t) - (r**2) * (cos_t**2)
+        R22 = b1_inv2 * (r**2) * (sin_t**2) + 0.5 * r2_sigma * (1 - (b1**4) * cos_t) - (r**2) * (sin_t**2)
+        R12 = (0.5 * b1_inv2 * (r**2) + 0.5 * r2_sigma * b2 - r**2) * sin_2t
+
+        Rc = np.array([
+            [R11, R12],
+            [R12, R22]
+        ])
+
+        y = Zc - (self.H @ self.x)
+        S = self.H @ self.P @ self.H.T + Rc
+        K = self.P @ self.H.T @ np.linalg.inv(S)
+
+        self.x = self.x + K @ y
+        self.P = (np.eye(4) - K @ self.H) @ self.P
+
+    
 # Plot function to display area with targets and radar
-def plot_sim(target_arr, radar):
+# TODO: update this tracker portion, this was just added for testing
+def plot_sim(target_arr, radar, tracker):
     plt.clf()
 
     radar_pos = radar.get_position()
@@ -87,6 +176,8 @@ def plot_sim(target_arr, radar):
     target_x = [t.get_position()[0] for t in target_arr]
     target_y = [t.get_position()[1] for t in target_arr]
     plt.scatter(target_x, target_y, color='red', marker='o', s=50, label='Targets')
+
+    plt.scatter(tracker.x[0], tracker.x[2], color='orange', marker='+', s=50, label='Tracks')
 
     plt.xlim(-(BOUNDARY_WIDTH/2)-10, (BOUNDARY_WIDTH/2)+10)
     plt.ylim(-(BOUNDARY_HEIGHT/2)-10, (BOUNDARY_HEIGHT/2)+10)
@@ -122,10 +213,10 @@ def gen_targets(num_targets, boundary_width, boundary_height, id_counter):
 ## Sim loop
 if __name__ == "__main__":
     # Set configuration variables
-    NUM_TARGETS = 5
+    NUM_TARGETS = 1
     BOUNDARY_WIDTH = 200
     BOUNDARY_HEIGHT = 200
-    GUI_ON = False
+    GUI_ON = True
 
     # Create set of random targets
     ID_COUNTER = 0
@@ -134,13 +225,16 @@ if __name__ == "__main__":
     # Create radar at origin
     radar = Radar(np.array([0, 0]))
 
+    # Temp radar tracker for testing
+    tracker = RadarTracker(radar.get_position(), radar.sigma_range, radar.sigma_azimuth)
+
     if GUI_ON:
         # Init plot
         plt.ion()
         plt.figure(figsize=(8, 8))
-        plot_sim(target_arr, radar)
+        plot_sim(target_arr, radar, tracker)
 
-    # Test loop
+    # Sim loop
     dt = 0.1
     sim_steps = 1000
     for step in range(sim_steps):
@@ -153,9 +247,14 @@ if __name__ == "__main__":
                 target_arr[i].re_init(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER)
                 ID_COUNTER += 1
 
+        # Update tracker
+        tracker.predict(dt)
+        raw_z = radar.get_noisy_measurements(target_arr[0])
+        tracker.update(raw_z)
+
         if GUI_ON:
             # Update plot
-            plot_sim(target_arr, radar)
+            plot_sim(target_arr, radar, tracker)
             plt.pause(0.01)
 
     print(f"Number of targets created in sim: {ID_COUNTER}")
