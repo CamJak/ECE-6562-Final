@@ -9,6 +9,7 @@ class Target:
         self.id = id
 
     def update(self, dt):
+        # Citation [1]
         sigma_q = 0.5
         x_old = self.state_vector
         F = np.array([[1, dt, 0, 0],
@@ -108,6 +109,7 @@ class RadarTracker:
         self.is_initialized = True
 
     def predict(self, dt):
+        # Citation [1]
         F = np.array([[1, dt, 0, 0],
                       [0, 1, 0, 0],
                       [0, 0, 1, dt],
@@ -154,7 +156,7 @@ class RadarTracker:
             y_c + self.sensor_pos[1]
         ])
 
-        # Citation: "Unbiased Converted Measurements for Tracking" 
+        # Citation: "Unbiased Converted Measurements for Tracking" [2]
         # Mo Longbin, Song Xiaoquan, Zhou Yiyu, Sun Zhong Kang and Y. Bar-Shalom, "Unbiased converted measurements for tracking," in IEEE Transactions on Aerospace and Electronic Systems, vol. 34, no. 3, pp. 1023-1027, July 1998, doi: 10.1109/7.705921.
         R11 = 0.5 * r2_sigma * (1 + b2 * cos_2t) - (x_c**2)
         R22 = 0.5 * r2_sigma * (1 - b2 * cos_2t) - (y_c**2)
@@ -173,25 +175,73 @@ class RadarTracker:
         self.P = (np.eye(4) - K @ self.H) @ self.P
 
 # Camera class to represent a EO sensor
+# TODO: Work on this, this is just temp code
 class Camera:
     def __init__(self, position, sigma_azimuth_deg=0.2):
-        self.position = position
+        self.position = np.array(position)
         self.sigma_azimuth = np.radians(sigma_azimuth_deg)
 
     def get_position(self):
         return self.position
 
     def get_azimuth(self, target):
-        return np.arctan2(target.get_position()[1] - self.position[1], target.get_position()[0] - self.position[0])
+        # Citation: "Track-to-Track fusion with cross-covariances from radar and IR/EO sensor" [1]
+        # K. Yang, Y. Bar-Shalom and P. Willett, "Track-to-Track fusion with cross-covariances from radar and IR/EO sensor," 2019 22th International Conference on Information Fusion (FUSION), Ottawa, ON, Canada, 2019, pp. 1-5, doi: 10.23919/FUSION43075.2019.9011439.
+        target_pos = target.get_position()
+        dx = target_pos[0] - self.position[0]
+        dy = target_pos[1] - self.position[1]
+        return np.arctan2(dy, dx)
     
     def get_noisy_measurements(self, target):
         true_azimuth = self.get_azimuth(target)
-        noisy_azimuth = true_azimuth + np.random.normal(0, self.sigma_azimuth)
-        return noisy_azimuth
+        return true_azimuth + np.random.normal(0, self.sigma_azimuth)
+    
+# Tracker class to handle Kalman math for camera
+# TODO: Work on this, this is just temp code
+class CameraTracker:
+    def __init__(self, dt, sigma_azimuth_rad, q_noise=0.01):
+        self.dt = dt
+        self.sigma_theta = sigma_azimuth_rad
+        self.q = q_noise
+        
+        # Citation [1]
+        self.F = np.array([[1, self.dt],
+                           [0, 1]])
+        
+        self.H = np.array([[1, 0]])
+        
+        dt2 = self.dt**2
+        self.Q = np.array([[dt2/4, dt/2],
+                           [dt/2,  1]]) * self.q
+        
+        self.R = np.array([[self.sigma_theta**2]])
+        
+        self.reset()
+
+    def reset(self):
+        self.x = np.array([0.0, 0.0])
+        self.P = np.eye(2) * 10.0
+        self.is_initialized = False
+
+    def predict(self):
+        self.x = self.F @ self.x
+        self.P = self.F @ self.P @ self.F.T + self.Q
+
+    def update(self, z):
+        if not self.is_initialized:
+            self.x = np.array([z, 0.0])
+            self.is_initialized = True
+            return
+
+        y = z - (self.H @ self.x)
+        S = self.H @ self.P @ self.H.T + self.R
+        K = self.P @ self.H.T @ np.linalg.inv(S)
+        
+        self.x = self.x + K @ y
+        self.P = (np.eye(2) - K @ self.H) @ self.P
 
     
 # Plot function to display area with targets and radar
-# TODO: update this tracker portion, this was just added for testing
 def plot_sim(target_arr, radar, radar_tracker_arr):
     plt.clf()
 
@@ -240,7 +290,6 @@ def gen_targets(num_targets, boundary_width, boundary_height, id_counter, radar)
     return target_arr, radar_tracker_arr, id_counter
 
 
-# TODO: Kinda cheating by using target IDs with the trackers, add some kind of target detection if there is time later on.
 ## Sim loop
 if __name__ == "__main__":
     # Set configuration variables
