@@ -172,6 +172,23 @@ class RadarTracker:
         self.x = self.x + K @ y
         self.P = (np.eye(4) - K @ self.H) @ self.P
 
+# Camera class to represent a EO sensor
+class Camera:
+    def __init__(self, position, sigma_azimuth_deg=0.2):
+        self.position = position
+        self.sigma_azimuth = np.radians(sigma_azimuth_deg)
+
+    def get_position(self):
+        return self.position
+
+    def get_azimuth(self, target):
+        return np.arctan2(target.get_position()[1] - self.position[1], target.get_position()[0] - self.position[0])
+    
+    def get_noisy_measurements(self, target):
+        true_azimuth = self.get_azimuth(target)
+        noisy_azimuth = true_azimuth + np.random.normal(0, self.sigma_azimuth)
+        return noisy_azimuth
+
     
 # Plot function to display area with targets and radar
 # TODO: update this tracker portion, this was just added for testing
