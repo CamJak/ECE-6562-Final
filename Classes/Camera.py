@@ -1,7 +1,6 @@
 import numpy as np
 
 # Camera class to represent a EO sensor
-# TODO: Work on this, this is just temp code
 class Camera:
     def __init__(self, position, sigma_azimuth_deg=0.2):
         self.position = np.array(position)
@@ -23,7 +22,6 @@ class Camera:
         return true_azimuth + np.random.normal(0, self.sigma_azimuth)
     
 # Tracker class to handle Kalman math for camera
-# TODO: Work on this, this is just temp code (why does camera tracker not need pos?)
 class CameraTracker:
     def __init__(self, target_id, dt, sigma_azimuth_rad, q_noise=0.01):
         self.target_id = target_id
@@ -54,7 +52,11 @@ class CameraTracker:
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
 
-    def update(self, z):
+    def update(self, z, target_id):
+        if target_id != self.target_id:
+            self.target_id = target_id
+            self.reset()
+
         if not self.is_initialized:
             self.x = np.array([z, 0.0])
             self.is_initialized = True

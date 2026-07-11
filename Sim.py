@@ -24,13 +24,13 @@ if __name__ == "__main__":
 
     # Create set of random targets
     ID_COUNTER = 0
-    target_arr, radar_tracker_arr, ID_COUNTER = gen_targets(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER, radar, camera, dt)
+    target_arr, radar_tracker_arr, camera_tracker_arr, ID_COUNTER = gen_targets(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER, radar, camera, dt)
 
     if GUI_ON:
         # Init plot
         plt.ion()
         plt.figure(figsize=(8, 8))
-        plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr)
+        plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr, camera, camera_tracker_arr)
 
     # Sim loop
     for step in range(sim_steps):
@@ -47,30 +47,8 @@ if __name__ == "__main__":
                 ID_COUNTER += 1
 
         # Update all trackers
-        for i in range(NUM_TARGETS):
-            # Check if target still exists
-            target_exists = False
-            target_obj = None
-
-            for target in target_arr:
-                if radar_tracker_arr[i].target_id == target.id:
-                    target_exists = True
-                    target_obj = target
-                    break
-
-            if target_exists:
-                # If it still exists, predict and update
-                raw_z = radar.get_noisy_measurements(target_obj)
-                radar_tracker_arr[i].predict(dt)
-                radar_tracker_arr[i].update(raw_z, target_obj.id)
-            else:
-                # If the target no longer exists, pick a new untracked id
-                tracked_ids = set([t.target_id for t in radar_tracker_arr])
-                for target in target_arr:
-                    if target.id not in tracked_ids:
-                        raw_z = radar.get_noisy_measurements(target)
-                        radar_tracker_arr[i].update(raw_z, target.id)
-                        break
+        process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
+        process_camera_tracks(NUM_TARGETS, target_arr, camera_tracker_arr, camera)
 
         # # Calculate metrics
         # if tracker.is_initialized:
@@ -82,7 +60,7 @@ if __name__ == "__main__":
 
         if GUI_ON:
             # Update plot
-            plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr)
+            plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr, camera, camera_tracker_arr)
             plt.pause(0.01)
 
     if GUI_ON:

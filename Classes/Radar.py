@@ -25,16 +25,35 @@ class Radar:
     
 # Tracker class to handle Kalman math for radar
 class RadarTracker:
-    def __init__(self, target_id, radar_position, sigma_range, sigma_azimuth_rad, q_bar=0.5):
+    def __init__(self, target_id, radar_position, sigma_range, sigma_azimuth_rad, dt, q_bar=0.5):
         self.target_id = target_id
         self.sensor_pos = radar_position
         self.sigma_r = sigma_range
         self.sigma_theta = sigma_azimuth_rad
+        self.dt = dt
         self.q_bar = q_bar
+
         self.H = np.array([
             [1, 0, 0, 0],
             [0, 0, 1, 0]
         ])
+
+        # Citation [1]
+        self.F = np.array([[1, self.dt, 0, 0],
+                      [0, 1, 0, 0],
+                      [0, 0, 1, self.dt],
+                      [0, 0, 0, 1]])
+        
+        dt2 = self.dt**2
+        dt3 = self.dt**3
+
+        self.Q = np.array([
+            [dt3/3,   dt2/2,    0,           0],
+            [dt2/2,   self.dt,       0,           0],
+            [0,       0,        dt3/3,   dt2/2],
+            [0,       0,        dt2/2,      self.dt]
+        ]) * (self.q_bar**2)
+
         self.reset()
 
     def reset(self):
@@ -54,29 +73,13 @@ class RadarTracker:
         self.P = np.diag([self.sigma_r**2, 10.0, self.sigma_r**2, 10.0])
         self.is_initialized = True
 
-    def predict(self, dt):
-        # Citation [1]
-        F = np.array([[1, dt, 0, 0],
-                      [0, 1, 0, 0],
-                      [0, 0, 1, dt],
-                      [0, 0, 0, 1]])
-        
-        dt2 = dt**2
-        dt3 = dt**3
+    def predict(self):
+        self.x = self.F @ self.x
+        self.P = self.F @ self.P @ self.F.T + self.Q
 
-        Q = np.array([
-            [dt3/3,   dt2/2,    0,           0],
-            [dt2/2,   dt,       0,           0],
-            [0,       0,        dt3/3,   dt2/2],
-            [0,       0,        dt2/2,      dt]
-        ]) * (self.q_bar**2)
-
-        self.x = F @ self.x
-        self.P = F @ self.P @ F.T + Q
-
-    def update(self, raw_measurement, id):
-        if id != self.target_id:
-            self.target_id = id
+    def update(self, raw_measurement, target_id):
+        if target_id != self.target_id:
+            self.target_id = target_id
             self.reset()
 
         if not self.is_initialized:
