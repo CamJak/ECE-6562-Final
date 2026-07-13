@@ -58,6 +58,8 @@ class RadarTracker:
 
     def reset(self):
         self.x = np.array([0.0, 0.0, 0.0, 0.0])
+        self.x_pred = np.zeros(4)
+        self.K = np.zeros((4, 2))
         self.P = np.eye(4) * 100
         self.is_initialized = False
 
@@ -75,6 +77,7 @@ class RadarTracker:
 
     def predict(self):
         self.x = self.F @ self.x
+        self.x_pred = self.x.copy()
         self.P = self.F @ self.P @ self.F.T + self.Q
 
     def update(self, raw_measurement, target_id):
@@ -119,6 +122,7 @@ class RadarTracker:
         y = Zc - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + Rc
         K = self.P @ self.H.T @ np.linalg.inv(S)
+        self.K = K
 
         self.x = self.x + K @ y
         self.P = (np.eye(4) - K @ self.H) @ self.P

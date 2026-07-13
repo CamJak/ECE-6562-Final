@@ -45,11 +45,14 @@ class CameraTracker:
 
     def reset(self):
         self.x = np.array([0.0, 0.0])
+        self.x_pred = np.zeros(2)
+        self.K = np.zeros((2, 1))
         self.P = np.eye(2) * 10.0
         self.is_initialized = False
 
     def predict(self):
         self.x = self.F @ self.x
+        self.x_pred = self.x.copy()
         self.P = self.F @ self.P @ self.F.T + self.Q
 
     def update(self, z, target_id):
@@ -65,6 +68,7 @@ class CameraTracker:
         y = z - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + self.R
         K = self.P @ self.H.T @ np.linalg.inv(S)
+        self.K = K
         
         self.x = self.x + K @ y
         self.P = (np.eye(2) - K @ self.H) @ self.P

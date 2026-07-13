@@ -4,23 +4,35 @@ import matplotlib.pyplot as plt
 from Classes.Target import *
 from Classes.Radar import *
 from Classes.Camera import *
+from Classes.FusionManager import *
 from Functions import *
 
 ## Sim loop
 if __name__ == "__main__":
-    # Set configuration variables
+    ## Set configuration variables
     NUM_TARGETS = 5
     BOUNDARY_WIDTH = 200
     BOUNDARY_HEIGHT = 200
     GUI_ON = True
 
-    # Sim config
     dt = 0.1
     sim_steps = 500
 
+    # Statistics configurations
+    radar_position = [0, 0]
+    radar_sigma_range = 10
+    radar_sigma_azimuth = 1
+
+    camera_position = [55, 30]
+    camera_sigma_azimuth = 0.2
+
     # Create radar and camera at origin
-    radar = Radar(np.array([0, 0]))
-    camera = Camera(np.array([0, 0]))
+    radar = Radar(np.array(radar_position), radar_sigma_range, radar_sigma_azimuth)
+    camera = Camera(np.array(camera_position), camera_sigma_azimuth)
+
+    # Create fusion manager and cross-covariance
+    FC = FusionManager(camera.get_position())
+    P_re_dict = {}
 
     # Create set of random targets
     ID_COUNTER = 0
@@ -30,9 +42,10 @@ if __name__ == "__main__":
         # Init plot
         plt.ion()
         plt.figure(figsize=(8, 8))
-        plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr, camera, camera_tracker_arr)
+        plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, 
+                 radar, radar_tracker_arr, camera, camera_tracker_arr, [])
 
-    # Sim loop
+    ## Sim loop
     for step in range(sim_steps):
         
         # Update all targets
@@ -50,38 +63,52 @@ if __name__ == "__main__":
         process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
         process_camera_tracks(NUM_TARGETS, target_arr, camera_tracker_arr, camera)
 
-        # # Calculate metrics
-        # if tracker.is_initialized:
-        #     true_pos = target_arr[0].get_position()
-        #     est_pos = (tracker.x[0], tracker.x[2])
-        #     squared_error = (true_pos[0] - est_pos[0])**2 + (true_pos[1] - est_pos[1])**2
-        #     mse_history.append(squared_error)
-        #     steps_history.append(step)
+        active_P_re = {}
+        fused_tracks = []
+
+        # Fuse tracks
+        for i in range(NUM_TARGETS):
+            curr_target_id = radar_tracker_arr[i].target_id
+            radar_track = radar_tracker_arr[i]
+            camera_track = None
+
+            for track in camera_tracker_arr:
+                if track.target_id == curr_target_id:
+                    camera_track = track
+                    break
+
+            if curr_target_id not in P_re_dict:
+                P_re_dict[curr_target_id] = np.zeros((4, 2))
+
+            P_re_old = P_re_dict[curr_target_id]
+
+            A_k = compute_jacobian(radar_track.x_pred, camera.get_position())
+
+            # Equation 46 [1]
+            Q_re = radar_track.Q @ A_k.T
+
+            # Equation 53 [1]
+            P_re_pred = radar_track.F @ P_re_old @ camera_track.F.T + Q_re
+            I_r = np.eye(4)
+            I_e = np.eye(2)
+            term_r = I_r - radar_track.K @ radar_track.H
+            term_e = I_e - camera_track.K @ camera_track.H
+            P_re_updated = term_r @ P_re_pred @ term_e.T
+
+            active_P_re[curr_target_id] = P_re_updated
+
+            x_f, P_f = FC.fuse(radar_track, camera_track, P_re_updated)
+
+            if x_f is not None:
+                fused_tracks.append(x_f)
 
         if GUI_ON:
             # Update plot
-            plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, radar, radar_tracker_arr, camera, camera_tracker_arr)
+            plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, 
+                     target_arr, radar, radar_tracker_arr, 
+                     camera, camera_tracker_arr, fused_tracks)
             plt.pause(0.01)
 
     if GUI_ON:
         plt.ioff()
         plt.close()
-
-    # print(f"Number of targets created in sim: {ID_COUNTER}")
-    # print(f"Average Tracking Position MSE: {np.mean(mse_history):.4f} m^2")
-
-    # plt.figure(figsize=(10, 5))
-    # plt.plot(steps_history, mse_history, color='purple', linewidth=1.5, label='Squared Position Error')
-    # plt.axhline(np.mean(mse_history), color='red', linestyle='--', linewidth=1.5, label=f'Mean SE ({np.mean(mse_history):.2f})')
-
-    # for s_idx, b_step in enumerate(birth_steps):
-    #     # We only add a label to the first line so it doesn't clutter the legend
-    #     lbl = "New Target Created" if s_idx == 0 else ""
-    #     plt.axvline(x=b_step, color='gray', linestyle=':', linewidth=1.2, alpha=0.8, label=lbl)
-
-    # plt.title('Tracker Position Error Across Simulation Steps')
-    # plt.xlabel('Simulation Step')
-    # plt.ylabel('Squared Error ($m^2$)')
-    # plt.grid(True, linestyle=':', alpha=0.6)
-    # plt.legend()
-    # plt.show()

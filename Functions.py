@@ -6,7 +6,8 @@ from Classes.Radar import *
 from Classes.Camera import *
 
 # Plot function to display area with targets and radar
-def plot_sim(boundary_width, boundary_height, target_arr, radar, radar_tracker_arr, camera, camera_tracker_arr):
+def plot_sim(boundary_width, boundary_height, target_arr, 
+             radar, radar_tracker_arr, camera, camera_tracker_arr, fused_tracks):
     plt.clf()
 
     radar_pos = radar.get_position()
@@ -23,6 +24,7 @@ def plot_sim(boundary_width, boundary_height, target_arr, radar, radar_tracker_a
     tracker_y = [t.x[2] for t in radar_tracker_arr]
     plt.scatter(tracker_x, tracker_y, color='orange', marker='+', s=50, label='Radar Tracks')
 
+    # Plot track lines for EO tracks
     max_line_length = max(boundary_width, boundary_height)
     for c_tracker in camera_tracker_arr:
         if c_tracker.is_initialized:
@@ -37,6 +39,10 @@ def plot_sim(boundary_width, boundary_height, target_arr, radar, radar_tracker_a
             plt.plot([cam_pos[0], x_end], [cam_pos[1], y_end], 
                      color='purple', linestyle='--', linewidth=1.5, alpha=0.7,
                      label='Camera LOS' if 'Camera LOS' not in plt.gca().get_legend_handles_labels()[1] else "")
+            
+    fused_x = [t[0] for t in fused_tracks]
+    fused_y = [t[2] for t in fused_tracks]
+    plt.scatter(fused_x, fused_y, color='green', marker='+', s=50, label='Fused Tracks')
 
     plt.xlim(-(boundary_width/2)-10, (boundary_width/2)+10)
     plt.ylim(-(boundary_height/2)-10, (boundary_height/2)+10)
@@ -75,6 +81,31 @@ def gen_targets(num_targets, boundary_width, boundary_height, id_counter, radar,
         radar_tracker_arr.append(new_rad_tracker)
         camera_tracker_arr.append(new_cam_tracker)
     return target_arr, radar_tracker_arr, camera_tracker_arr, id_counter
+
+# Function for computing the jacobian matrix
+def compute_jacobian(x_pred, cam_pos):
+    dx = x_pred[0] - cam_pos[0]
+    dy = x_pred[2] - cam_pos[1]
+    vx = x_pred[1]
+    vy = x_pred[3]
+
+    v = np.sqrt(vx**2 + vy**2) + 1e-6
+    re = np.sqrt(dx**2 + dy**2) + 1e-6
+    phi = np.arctan2(vy, vx) - np.arctan2(dy, dx)
+
+    G = np.zeros((2, 4))
+
+    # Equations 37 - 44 [1]
+    G[0, 0] = -dy / (re**2)
+    G[0, 1] = 0.0 
+    G[0, 2] = dx / (re**2)
+    G[0, 3] = 0.0
+    G[1, 0] = (v / (re**3)) * (-np.sin(phi) * dx + np.cos(phi) * dy)
+    G[1, 1] = (1.0 / (v * re)) * (np.sin(phi) * vx - np.cos(phi) * vy)
+    G[1, 2] = (v / (re**3)) * (-np.sin(phi) * dx - np.cos(phi) * dy)
+    G[1, 3] = (1.0 / (v * re)) * (np.sin(phi) * vy + np.cos(phi) * vx)
+
+    return G
 
 # Function to process the updating of radar tracks
 def process_radar_tracks(num_targets, target_arr, radar_tracker_arr, radar):
