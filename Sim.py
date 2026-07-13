@@ -63,44 +63,8 @@ if __name__ == "__main__":
         process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
         process_camera_tracks(NUM_TARGETS, target_arr, camera_tracker_arr, camera)
 
-        active_P_re = {}
-        fused_tracks = []
-
         # Fuse tracks
-        for i in range(NUM_TARGETS):
-            curr_target_id = radar_tracker_arr[i].target_id
-            radar_track = radar_tracker_arr[i]
-            camera_track = None
-
-            for track in camera_tracker_arr:
-                if track.target_id == curr_target_id:
-                    camera_track = track
-                    break
-
-            if curr_target_id not in P_re_dict:
-                P_re_dict[curr_target_id] = np.zeros((4, 2))
-
-            P_re_old = P_re_dict[curr_target_id]
-
-            A_k = compute_jacobian(radar_track.x_pred, camera.get_position())
-
-            # Equation 46 [1]
-            Q_re = radar_track.Q @ A_k.T
-
-            # Equation 53 [1]
-            P_re_pred = radar_track.F @ P_re_old @ camera_track.F.T + Q_re
-            I_r = np.eye(4)
-            I_e = np.eye(2)
-            term_r = I_r - radar_track.K @ radar_track.H
-            term_e = I_e - camera_track.K @ camera_track.H
-            P_re_updated = term_r @ P_re_pred @ term_e.T
-
-            active_P_re[curr_target_id] = P_re_updated
-
-            x_f, P_f = FC.fuse(radar_track, camera_track, P_re_updated)
-
-            if x_f is not None:
-                fused_tracks.append(x_f)
+        fused_tracks = fuse_tracks(NUM_TARGETS, radar_tracker_arr, camera_tracker_arr, camera, P_re_dict, FC)
 
         if GUI_ON:
             # Update plot
