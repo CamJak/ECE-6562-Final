@@ -119,10 +119,11 @@ class RadarTracker:
             [R12, R22]
         ])
 
-        if np.any(np.linalg.eigvals(Rc) <= 0):
-            print("r, theta:", r, theta)
-            print("Rc:\n", Rc)
-            print("eig:", np.linalg.eigvals(Rc))
+        ## Sometimes the Rc matrix has negative eigenvalues and explodes our data, I think for long range measurements
+        # if np.any(np.linalg.eigvals(Rc) <= 0):
+        #     print("r, theta:", r, theta)
+        #     print("Rc:\n", Rc)
+        #     print("eig:", np.linalg.eigvals(Rc))
 
         y = Zc - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + Rc

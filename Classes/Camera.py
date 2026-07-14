@@ -2,9 +2,11 @@ import numpy as np
 
 # Camera class to represent a EO sensor
 class Camera:
-    def __init__(self, position, sigma_azimuth_deg=0.2):
+    def __init__(self, position, sigma_azimuth_deg=0.2, blackout_start=0.0, blackout_size=0.0):
         self.position = np.array(position)
         self.sigma_azimuth = np.radians(sigma_azimuth_deg)
+        self.blackout_start = blackout_start
+        self.blackout_size = blackout_size
 
     def get_position(self):
         return self.position
@@ -19,6 +21,11 @@ class Camera:
     
     def get_noisy_measurements(self, target):
         true_azimuth = self.get_azimuth(target)
+
+        # Simulate sensor blackout (i.e. glare)
+        if self.blackout_start < true_azimuth < self.blackout_start + self.blackout_size:
+            return None
+
         return true_azimuth + np.random.normal(0, self.sigma_azimuth)
     
 # Tracker class to handle Kalman math for camera
@@ -56,6 +63,9 @@ class CameraTracker:
         self.P = self.F @ self.P @ self.F.T + self.Q
 
     def update(self, z, target_id):
+        if z is None:
+            return
+
         if target_id != self.target_id:
             self.target_id = target_id
             self.reset()

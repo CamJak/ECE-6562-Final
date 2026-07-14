@@ -229,11 +229,11 @@ def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re
 # Function that runs single iteration of the basic simulation
 def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON, 
         dt, sim_steps, radar_position, radar_sigma_range, radar_sigma_azimuth, 
-        camera_position, camera_sigma_azimuth):
+        camera_position, camera_sigma_azimuth, blackout_start=0.0, blackout_size=0.0):
     
     # Create radar and camera at origin
     radar = Radar(np.array(radar_position), radar_sigma_range, radar_sigma_azimuth)
-    camera = Camera(np.array(camera_position), camera_sigma_azimuth)
+    camera = Camera(np.array(camera_position), camera_sigma_azimuth, blackout_start, blackout_size)
 
     # Create fusion manager and cross-covariance
     FC = FusionManager(camera.get_position())
