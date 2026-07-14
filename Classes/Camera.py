@@ -66,6 +66,7 @@ class CameraTracker:
             return
 
         y = z - (self.H @ self.x)
+        y[0] = (y[0] + np.pi) % (2 * np.pi) - np.pi
         S = self.H @ self.P @ self.H.T + self.R
         K = self.P @ self.H.T @ np.linalg.inv(S)
         self.K = K

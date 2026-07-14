@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from Classes.Target import *
 from Classes.Radar import *
 from Classes.Camera import *
+from Classes.FusionManager import *
 
 # Plot function to display area with targets and radar
 def plot_sim(boundary_width, boundary_height, target_arr, 
@@ -40,8 +41,8 @@ def plot_sim(boundary_width, boundary_height, target_arr,
                      color='purple', linestyle='--', linewidth=1.5, alpha=0.7,
                      label='Camera LOS' if 'Camera LOS' not in plt.gca().get_legend_handles_labels()[1] else "")
             
-    fused_x = [t[0] for t in fused_tracks]
-    fused_y = [t[2] for t in fused_tracks]
+    fused_x = [t[1][0] for t in fused_tracks]
+    fused_y = [t[1][2] for t in fused_tracks]
     plt.scatter(fused_x, fused_y, color='green', marker='+', s=50, label='Fused Tracks')
 
     plt.xlim(-(boundary_width/2)-10, (boundary_width/2)+10)
@@ -109,62 +110,78 @@ def compute_jacobian(x_pred, cam_pos):
 
 # Function to process the updating of radar tracks
 def process_radar_tracks(num_targets, target_arr, radar_tracker_arr, radar):
-    for i in range(num_targets):
-            # Check if target still exists
-            target_exists = False
-            target_obj = None
+    radar_step_errors = {}
 
+    for i in range(num_targets):
+        # Check if target still exists
+        target_exists = False
+        target_obj = None
+
+        for target in target_arr:
+            if radar_tracker_arr[i].target_id == target.id:
+                target_exists = True
+                target_obj = target
+                break
+
+        if target_exists:
+            # If it still exists, predict and update
+            raw_z = radar.get_noisy_measurements(target_obj)
+            radar_tracker_arr[i].predict()
+            radar_tracker_arr[i].update(raw_z, target_obj.id)
+        else:
+            # If the target no longer exists, pick a new untracked id
+            tracked_ids = set([t.target_id for t in radar_tracker_arr])
             for target in target_arr:
-                if radar_tracker_arr[i].target_id == target.id:
-                    target_exists = True
+                if target.id not in tracked_ids:
+                    raw_z = radar.get_noisy_measurements(target)
+                    radar_tracker_arr[i].update(raw_z, target.id)
                     target_obj = target
                     break
+        
+        # Calculate error measurement
+        tracker = radar_tracker_arr[i]
+        if tracker.is_initialized and target_obj is not None:
+            true_pos = target_obj.get_position()
+            r_x, r_y = tracker.x[0], tracker.x[2]
+            sq_err = (true_pos[0] - r_x)**2 + (true_pos[1] - r_y)**2
+            radar_step_errors[tracker.target_id] = sq_err
 
-            if target_exists:
-                # If it still exists, predict and update
-                raw_z = radar.get_noisy_measurements(target_obj)
-                radar_tracker_arr[i].predict()
-                radar_tracker_arr[i].update(raw_z, target_obj.id)
-            else:
-                # If the target no longer exists, pick a new untracked id
-                tracked_ids = set([t.target_id for t in radar_tracker_arr])
-                for target in target_arr:
-                    if target.id not in tracked_ids:
-                        raw_z = radar.get_noisy_measurements(target)
-                        radar_tracker_arr[i].update(raw_z, target.id)
-                        break
+    return radar_step_errors
+            
 
 # Function for handling update of camera tracks
 def process_camera_tracks(num_targets, target_arr, camera_tracker_arr, camera):
     for i in range(num_targets):
         # Check if target still exists
-            target_exists = False
-            target_obj = None
+        target_exists = False
+        target_obj = None
 
+        for target in target_arr:
+            if camera_tracker_arr[i].target_id == target.id:
+                target_exists = True
+                target_obj = target
+                break
+
+        if target_exists:
+            # If it still exists, predict and update
+            raw_z = camera.get_noisy_measurements(target_obj)
+            camera_tracker_arr[i].predict()
+            camera_tracker_arr[i].update(raw_z, target_obj.id)
+        else:
+            # If the target no longer exists, pick a new untracked id
+            tracked_ids = set([t.target_id for t in camera_tracker_arr])
             for target in target_arr:
-                if camera_tracker_arr[i].target_id == target.id:
-                    target_exists = True
-                    target_obj = target
+                if target.id not in tracked_ids:
+                    raw_z = camera.get_noisy_measurements(target)
+                    camera_tracker_arr[i].update(raw_z, target.id)
                     break
 
-            if target_exists:
-                # If it still exists, predict and update
-                raw_z = camera.get_noisy_measurements(target_obj)
-                camera_tracker_arr[i].predict()
-                camera_tracker_arr[i].update(raw_z, target_obj.id)
-            else:
-                # If the target no longer exists, pick a new untracked id
-                tracked_ids = set([t.target_id for t in camera_tracker_arr])
-                for target in target_arr:
-                    if target.id not in tracked_ids:
-                        raw_z = camera.get_noisy_measurements(target)
-                        camera_tracker_arr[i].update(raw_z, target.id)
-                        break
-
 # Function to fuse given set of tracks using HT2TF
-def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re_dict, FC):
+def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re_dict, FC, target_arr):
     active_P_re = {}
     fused_tracks = []
+    fused_step_errors = {}
+
     for i in range(num_targets):
         curr_target_id = radar_tracker_arr[i].target_id
         radar_track = radar_tracker_arr[i]
@@ -198,6 +215,93 @@ def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re
         x_f, P_f = FC.fuse(radar_track, camera_track, P_re_updated)
 
         if x_f is not None:
-            fused_tracks.append(x_f)
+            fused_tracks.append((curr_target_id, x_f))
 
-    return fused_tracks
+            # Calculate error measurement
+            matching_target = next((t for t in target_arr if t.id == curr_target_id), None)
+            if matching_target is not None:
+                true_pos = matching_target.get_position()
+                f_x, f_y = x_f[0], x_f[2]
+                fused_step_errors[curr_target_id] = (true_pos[0] - f_x)**2 + (true_pos[1] - f_y)**2
+
+    return fused_tracks, fused_step_errors
+
+# Function that runs single iteration of the basic simulation
+def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON, 
+        dt, sim_steps, radar_position, radar_sigma_range, radar_sigma_azimuth, 
+        camera_position, camera_sigma_azimuth):
+    
+    # Create radar and camera at origin
+    radar = Radar(np.array(radar_position), radar_sigma_range, radar_sigma_azimuth)
+    camera = Camera(np.array(camera_position), camera_sigma_azimuth)
+
+    # Create fusion manager and cross-covariance
+    FC = FusionManager(camera.get_position())
+    P_re_dict = {}
+
+    # Create set of random targets
+    ID_COUNTER = 0
+    target_arr, radar_tracker_arr, camera_tracker_arr, ID_COUNTER = gen_targets(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER, radar, camera, dt)
+
+    if GUI_ON:
+        # Init plot
+        plt.ion()
+        plt.figure(figsize=(8, 8))
+        plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, target_arr, 
+                 radar, radar_tracker_arr, camera, camera_tracker_arr, [])
+
+    # Create empty error arrays
+    radar_errors = np.zeros(sim_steps)
+    fused_errors = np.zeros(sim_steps)
+
+    ## Sim loop
+    for step in range(sim_steps):
+        
+        # Update all targets
+        for i in range(NUM_TARGETS):
+            # Update current target's position
+            target_arr[i].update(dt)
+            curr_target_pos = target_arr[i].get_position()
+
+            # If target is outside the boundary, kill it and birth a new target
+            # Only do this for displaying purposes, no point for calculations.
+            if GUI_ON:
+                if (abs(curr_target_pos[0]) > BOUNDARY_WIDTH / 2) or (abs(curr_target_pos[1]) > BOUNDARY_HEIGHT / 2):
+                    target_arr[i].re_init(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, ID_COUNTER)
+                    ID_COUNTER += 1
+
+        # Update all trackers
+        radar_step_errors = process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
+        process_camera_tracks(NUM_TARGETS, target_arr, camera_tracker_arr, camera)
+
+        # Fuse tracks
+        fused_tracks, fused_step_errors = fuse_tracks(NUM_TARGETS, radar_tracker_arr, camera_tracker_arr, 
+                                                      camera, P_re_dict, FC, target_arr)
+
+        # Compile and average errors
+        step_radar_list = []
+        step_fused_list = []
+        
+        for t_id, r_err in radar_step_errors.items():
+            step_radar_list.append(r_err)
+            if t_id in fused_step_errors:
+                step_fused_list.append(fused_step_errors[t_id])
+            else:
+                step_fused_list.append(r_err)
+
+        if len(step_radar_list) > 0:
+            radar_errors[step] = np.mean(step_radar_list)
+            fused_errors[step] = np.mean(step_fused_list)
+
+        if GUI_ON:
+            # Update plot
+            plot_sim(BOUNDARY_WIDTH, BOUNDARY_HEIGHT, 
+                     target_arr, radar, radar_tracker_arr, 
+                     camera, camera_tracker_arr, fused_tracks)
+            plt.pause(0.001)
+
+    if GUI_ON:
+        plt.ioff()
+        plt.close()
+
+    return radar_errors, fused_errors

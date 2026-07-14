@@ -65,6 +65,8 @@ class FusionManager:
         P_xz = P_r @ G.T - P_re
         P_zz = P_e - G @ P_re - P_er @ G.T + G @ P_r @ G.T
 
+        P_zz += np.eye(2) * 1e-6
+
         W = P_xz @ np.linalg.inv(P_zz)
 
         # Calculate Innovation

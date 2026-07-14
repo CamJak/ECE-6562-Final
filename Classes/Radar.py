@@ -5,7 +5,7 @@ class Radar:
     def __init__(self, position, sigma_range=10.0, sigma_azimuth_deg=1.0):
         self.position = position
         self.sigma_range = sigma_range
-        self.sigma_azimuth = np.radians(sigma_azimuth_deg)
+        self.sigma_azimuth = np.deg2rad(sigma_azimuth_deg)
 
     def get_position(self):
         return self.position
@@ -110,14 +110,19 @@ class RadarTracker:
 
         # Citation: "Unbiased Converted Measurements for Tracking" [2]
         # Mo Longbin, Song Xiaoquan, Zhou Yiyu, Sun Zhong Kang and Y. Bar-Shalom, "Unbiased converted measurements for tracking," in IEEE Transactions on Aerospace and Electronic Systems, vol. 34, no. 3, pp. 1023-1027, July 1998, doi: 10.1109/7.705921.
-        R11 = 0.5 * r2_sigma * (1 + b2 * cos_2t) - (x_c**2)
-        R22 = 0.5 * r2_sigma * (1 - b2 * cos_2t) - (y_c**2)
-        R12 = 0.5 * r2_sigma * b2 * sin_2t - (x_c * y_c)
+        R11 = (0.5 * r2_sigma / b1**2 * (1 + b2*cos_2t)) - x_c**2
+        R22 = (0.5 * r2_sigma / b1**2 * (1 - b2*cos_2t)) - y_c**2
+        R12 = (0.5 * r2_sigma / b1**2 * b2*sin_2t) - x_c*y_c
 
         Rc = np.array([
             [R11, R12],
             [R12, R22]
         ])
+
+        if np.any(np.linalg.eigvals(Rc) <= 0):
+            print("r, theta:", r, theta)
+            print("Rc:\n", Rc)
+            print("eig:", np.linalg.eigvals(Rc))
 
         y = Zc - (self.H @ self.x)
         S = self.H @ self.P @ self.H.T + Rc
