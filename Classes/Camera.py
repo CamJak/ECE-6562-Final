@@ -23,7 +23,8 @@ class Camera:
         true_azimuth = self.get_azimuth(target)
 
         # Simulate sensor blackout (i.e. glare)
-        if self.blackout_start < true_azimuth < self.blackout_start + self.blackout_size:
+        angular_offset = (true_azimuth - self.blackout_start) % (2 * np.pi)
+        if angular_offset < self.blackout_size:
             return None
 
         return true_azimuth + np.random.normal(0, self.sigma_azimuth)

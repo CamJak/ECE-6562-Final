@@ -22,9 +22,8 @@ camera_position = [55, 30]
 camera_sigma_azimuth = 0.2
 
 # Sensor Blackout Config
-# TODO: Double check the logic for blackout, the performance is strangely really good
 blackout_start_theta = np.deg2rad(145)
-blackout_size_theta = np.deg2rad(360)
+blackout_size_theta = np.deg2rad(180)
 
 # Experiment debug
 DEBUG = [0, 1, 0]
