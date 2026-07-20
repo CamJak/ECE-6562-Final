@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Wedge
 
 from Classes.Target import *
 from Classes.Radar import *
@@ -10,11 +11,22 @@ from Classes.FusionManager import *
 def plot_sim(boundary_width, boundary_height, target_arr, 
              radar, radar_tracker_arr, camera, camera_tracker_arr, fused_tracks):
     plt.clf()
+    ax = plt.gca()
 
     radar_pos = radar.get_position()
     plt.scatter(radar_pos[0], radar_pos[1], color='blue', marker='^', s=150, label='Radar')
 
     cam_pos = camera.get_position()
+
+    max_line_length = max(boundary_width, boundary_height)
+    if camera.blackout_size > 0:
+        start_deg = np.degrees(camera.blackout_start)
+        end_deg = np.degrees(camera.blackout_start + camera.blackout_size)
+        blackout_wedge = Wedge((cam_pos[0], cam_pos[1]), max_line_length, start_deg, end_deg,
+                                facecolor='gray', edgecolor='none', alpha=0.25,
+                                label='Camera Blackout Zone', zorder=0)
+        ax.add_patch(blackout_wedge)
+
     plt.scatter(cam_pos[0], cam_pos[1], color='purple', marker='s', s=20, label='Camera (IR/EO)')
 
     target_x = [t.get_position()[0] for t in target_arr]
@@ -26,7 +38,6 @@ def plot_sim(boundary_width, boundary_height, target_arr,
     plt.scatter(tracker_x, tracker_y, color='orange', marker='+', s=50, label='Radar Tracks')
 
     # Plot track lines for EO tracks
-    max_line_length = max(boundary_width, boundary_height)
     for c_tracker in camera_tracker_arr:
         if c_tracker.is_initialized:
             # The current tracked angle theta is the first element of the state vector
@@ -108,9 +119,28 @@ def compute_jacobian(x_pred, cam_pos):
 
     return G
 
+# Function to generate metrics based on position
+def pos_metrics(true_pos, est_x, est_y, P_full):
+    dx = true_pos[0] - est_x
+    dy = true_pos[1] - est_y
+    sq_err = dx**2 + dy**2
+
+    P_pos = P_full[np.ix_([0, 2], [0, 2])]
+    trace_val = np.trace(P_pos)
+
+    e = np.array([dx, dy])
+    try:
+        nees_val = e @ np.linalg.inv(P_pos) @ e
+    except np.linalg.LinAlgError:
+        nees_val = np.nan
+    
+    return sq_err, trace_val, nees_val
+
 # Function to process the updating of radar tracks
 def process_radar_tracks(num_targets, target_arr, radar_tracker_arr, radar):
     radar_step_errors = {}
+    radar_step_trace = {}
+    radar_step_nees = {}
 
     for i in range(num_targets):
         # Check if target still exists
@@ -142,11 +172,12 @@ def process_radar_tracks(num_targets, target_arr, radar_tracker_arr, radar):
         tracker = radar_tracker_arr[i]
         if tracker.is_initialized and target_obj is not None:
             true_pos = target_obj.get_position()
-            r_x, r_y = tracker.x[0], tracker.x[2]
-            sq_err = (true_pos[0] - r_x)**2 + (true_pos[1] - r_y)**2
+            sq_err, trace_val, nees_val = pos_metrics(true_pos, tracker.x[0], tracker.x[2], tracker.P)
             radar_step_errors[tracker.target_id] = sq_err
+            radar_step_trace[tracker.target_id] = trace_val
+            radar_step_nees[tracker.target_id] = nees_val
 
-    return radar_step_errors
+    return radar_step_errors, radar_step_trace, radar_step_nees
             
 
 # Function for handling update of camera tracks
@@ -181,6 +212,8 @@ def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re
     active_P_re = {}
     fused_tracks = []
     fused_step_errors = {}
+    fused_step_trace = {}
+    fused_step_nees = {}
 
     for i in range(num_targets):
         curr_target_id = radar_tracker_arr[i].target_id
@@ -221,10 +254,12 @@ def fuse_tracks(num_targets, radar_tracker_arr, camera_tracker_arr, camera, P_re
             matching_target = next((t for t in target_arr if t.id == curr_target_id), None)
             if matching_target is not None:
                 true_pos = matching_target.get_position()
-                f_x, f_y = x_f[0], x_f[2]
-                fused_step_errors[curr_target_id] = (true_pos[0] - f_x)**2 + (true_pos[1] - f_y)**2
+                sq_err, trace_val, nees_val = pos_metrics(true_pos, x_f[0], x_f[2], P_f)
+                fused_step_errors[curr_target_id] = sq_err
+                fused_step_trace[curr_target_id] = trace_val
+                fused_step_nees[curr_target_id] = nees_val
 
-    return fused_tracks, fused_step_errors
+    return fused_tracks, fused_step_errors, fused_step_trace, fused_step_nees
 
 # Function that runs single iteration of the basic simulation
 def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON, 
@@ -253,6 +288,10 @@ def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON,
     # Create empty error arrays
     radar_errors = np.zeros(sim_steps)
     fused_errors = np.zeros(sim_steps)
+    radar_trace = np.zeros(sim_steps)
+    fused_trace = np.zeros(sim_steps)
+    radar_nees = np.zeros(sim_steps)
+    fused_nees = np.zeros(sim_steps)
 
     ## Sim loop
     for step in range(sim_steps):
@@ -271,27 +310,41 @@ def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON,
                     ID_COUNTER += 1
 
         # Update all trackers
-        radar_step_errors = process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
+        radar_step_errors, radar_step_trace, radar_step_nees = process_radar_tracks(NUM_TARGETS, target_arr, radar_tracker_arr, radar)
         process_camera_tracks(NUM_TARGETS, target_arr, camera_tracker_arr, camera)
 
         # Fuse tracks
-        fused_tracks, fused_step_errors = fuse_tracks(NUM_TARGETS, radar_tracker_arr, camera_tracker_arr, 
-                                                      camera, P_re_dict, FC, target_arr)
+        fused_tracks, fused_step_errors, fused_step_trace, fused_step_nees = fuse_tracks(NUM_TARGETS, radar_tracker_arr, camera_tracker_arr, 
+                                                                                         camera, P_re_dict, FC, target_arr)
 
         # Compile and average errors
         step_radar_list = []
         step_fused_list = []
+        step_radar_trace_list = []
+        step_fused_trace_list = []
+        step_radar_nees_list = []
+        step_fused_nees_list = []
         
         for t_id, r_err in radar_step_errors.items():
             step_radar_list.append(r_err)
+            step_radar_trace_list.append(radar_step_trace[t_id])
+            step_radar_nees_list.append(radar_step_nees[t_id])
             if t_id in fused_step_errors:
                 step_fused_list.append(fused_step_errors[t_id])
+                step_fused_trace_list.append(fused_step_trace[t_id])
+                step_fused_nees_list.append(fused_step_nees[t_id])
             else:
                 step_fused_list.append(r_err)
+                step_fused_trace_list.append(radar_step_trace[t_id])
+                step_fused_nees_list.append(radar_step_nees[t_id])
 
         if len(step_radar_list) > 0:
             radar_errors[step] = np.mean(step_radar_list)
             fused_errors[step] = np.mean(step_fused_list)
+            radar_trace[step] = np.mean(step_radar_trace_list)
+            fused_trace[step] = np.mean(step_fused_trace_list)
+            radar_nees[step] = np.mean(step_radar_nees_list)
+            fused_nees[step] = np.mean(step_fused_nees_list)
 
         if GUI_ON:
             # Update plot
@@ -304,4 +357,4 @@ def sim(NUM_TARGETS, BOUNDARY_WIDTH, BOUNDARY_HEIGHT, GUI_ON,
         plt.ioff()
         plt.close()
 
-    return radar_errors, fused_errors
+    return radar_errors, fused_errors, radar_trace, fused_trace, radar_nees, fused_nees
