@@ -64,12 +64,12 @@ class CameraTracker:
         self.P = self.F @ self.P @ self.F.T + self.Q
 
     def update(self, z, target_id):
-        if z is None:
-            return
-
         if target_id != self.target_id:
             self.target_id = target_id
             self.reset()
+
+        if z is None:
+            return
 
         if not self.is_initialized:
             self.x = np.array([z, 0.0])
