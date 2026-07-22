@@ -71,11 +71,7 @@ experiments):
 | 2 | Actual vs. Predicted RMSE | Actual RMSE overlaid with each tracker's self-reported uncertainty, $\sqrt{\operatorname{tr}(\mathbf{P}_{\text{pos}})}$ — tests whether the filter's covariance is trustworthy, not just how accurate the estimate is |
 | 3 | NEES (log scale) | Normalized Estimation Error Squared, a statistical consistency check. Ideal value is 2 (dashed line), with a shaded 95% consistency band. Plotted on a log axis because rare, large transient spikes (mainly in the first ~1 s of track life, before the cross-covariance has converged) would otherwise dominate a linear plot |
 
-None of the figures are saved to disk automatically. To save them instead of
-(or in addition to) displaying them, call `plt.savefig("name.png")` right
-before each `plt.show()` in `Sim.py`, or reuse the `run_monte_carlo()` /
-`plot_rmse()` / `plot_rmse_with_uncertainty()` / `plot_nees()` functions
-directly in your own script.
+Every figure is saved to the main directory automatically with names plot1.png to plot6.png in order of creation.
 
 ### Reading the plots
 
