@@ -64,7 +64,7 @@ def run_monte_carlo(blackout_start=0.0, blackout_size=0.0):
     }
 
 
-def plot_rmse(results, title):
+def plot_rmse(results, title, save_path=None):
     time_axis = np.arange(sim_steps) * dt
     plt.figure(figsize=(10, 6))
 
@@ -76,13 +76,12 @@ def plot_rmse(results, title):
     plt.ylabel("RMSE (meters)")
     plt.grid(True, linestyle="--", alpha=0.5)
     plt.legend()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
-def plot_rmse_with_uncertainty(results, title):
-    """Actual RMSE vs. the RMSE the filter *predicts* it should have (sqrt(trace(P_pos))).
-    When the dotted (predicted) line tracks the solid (actual) line, the filter's
-    reported covariance is a trustworthy indicator of its real-world error."""
+def plot_rmse_with_uncertainty(results, title, save_path=None):
     time_axis = np.arange(sim_steps) * dt
     plt.figure(figsize=(10, 6))
 
@@ -98,12 +97,12 @@ def plot_rmse_with_uncertainty(results, title):
     plt.ylabel("Position RMSE (meters)")
     plt.grid(True, linestyle="--", alpha=0.5)
     plt.legend()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
-def plot_nees(results, title):
-    """Filter consistency check. If avg NEES sits within the bounds, the filter's
-    covariance P is neither over- nor under-confident relative to its true error."""
+def plot_nees(results, title, save_path=None):
     time_axis = np.arange(sim_steps) * dt
 
     # Normal approximation to the mean of `num_runs` iid chi-square(NEES_DOF)
@@ -124,6 +123,8 @@ def plot_nees(results, title):
     plt.ylabel("Average NEES")
     plt.grid(True, linestyle="--", alpha=0.5)
     plt.legend()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
@@ -133,14 +134,14 @@ if __name__ == "__main__":
         ## Control Simulation
         results = run_monte_carlo()
 
-        plot_rmse(results, f"Position RMSE Averaged Over {num_runs} Monte Carlo Trials")
-        plot_rmse_with_uncertainty(results, f"Actual vs. Predicted RMSE Over {num_runs} Monte Carlo Trials")
-        plot_nees(results, f"Filter Consistency (NEES) Averaged Over {num_runs} Monte Carlo Trials")
+        plot_rmse(results, f"Position RMSE Averaged Over {num_runs} Monte Carlo Trials", save_path="plot1.png")
+        plot_rmse_with_uncertainty(results, f"Actual vs. Predicted RMSE Over {num_runs} Monte Carlo Trials", save_path="plot2.png")
+        plot_nees(results, f"Filter Consistency (NEES) Averaged Over {num_runs} Monte Carlo Trials", save_path="plot3.png")
 
     if DEBUG[1]:
         ## Sensor Blackout Simulation
         results = run_monte_carlo(blackout_start_theta, blackout_size_theta)
 
-        plot_rmse(results, f"Position RMSE Averaged Over {num_runs} Monte Carlo Trials w/ Camera Blackout")
-        plot_rmse_with_uncertainty(results, f"Actual vs. Predicted RMSE Over {num_runs} Monte Carlo Trials w/ Camera Blackout")
-        plot_nees(results, f"Filter Consistency (NEES) Averaged Over {num_runs} Monte Carlo Trials w/ Camera Blackout")
+        plot_rmse(results, f"Position RMSE Averaged Over {num_runs} Monte Carlo Trials w/ Camera Blackout", save_path="plot4.png")
+        plot_rmse_with_uncertainty(results, f"Actual vs. Predicted RMSE Over {num_runs} Monte Carlo Trials w/ Camera Blackout", save_path="plot5.png")
+        plot_nees(results, f"Filter Consistency (NEES) Averaged Over {num_runs} Monte Carlo Trials w/ Camera Blackout", save_path="plot6.png")
